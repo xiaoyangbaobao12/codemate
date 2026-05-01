@@ -8,13 +8,13 @@ import os
 import sys
 from pathlib import Path
 
+import json
+
 import click
-from openai import OpenAI
+import requests
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.spinner import Spinner
-from rich.live import Live
 
 from prompts import CONCEPT_PROMPT, DEBUG_PROMPT, EXPLAIN_PROMPT
 
@@ -40,54 +40,81 @@ USAGE_HINT = """
 """
 
 
-def get_client():
-    """获取 API 客户端，未配置时给出友好提示"""
+def check_api_key():
+    """检查 API Key 是否配置，未配置时给出友好提示"""
     if not API_KEY:
         console.print(Panel.fit(
             "[bold red]❌ 未设置 DEEPSEEK_API_KEY[/bold red]\n\n" + USAGE_HINT,
             border_style="red",
         ))
         sys.exit(1)
-    return OpenAI(api_key=API_KEY, base_url=BASE_URL)
 
 
 def call_api(system_prompt: str, user_input: str, stream: bool = False):
     """调用 DeepSeek API，返回完整响应或逐块输出"""
-    client = get_client()
+    check_api_key()
+
+    url = f"{BASE_URL}/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_input},
+        ],
+        "stream": stream,
+        "temperature": 0.7,
+        "max_tokens": 4096,
+    }
 
     try:
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_input},
-            ],
-            stream=stream,
-            temperature=0.7,
-            max_tokens=4096,
-        )
-
         if stream:
             console.print()
             full_text = ""
-            for chunk in response:
-                delta = chunk.choices[0].delta
-                if delta.content:
-                    full_text += delta.content
-                    console.print(delta.content, end="")
+            with requests.post(url, headers=headers, json=payload, stream=True, timeout=120) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines(decode_unicode=True):
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data = line[6:]  # 去掉 "data: " 前缀
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                        delta = chunk["choices"][0]["delta"]
+                        if "content" in delta and delta["content"]:
+                            full_text += delta["content"]
+                            console.print(delta["content"], end="")
+                    except (json.JSONDecodeError, KeyError):
+                        continue
             console.print("\n")
             return full_text
         else:
-            content = response.choices[0].message.content
+            resp = requests.post(url, headers=headers, json=payload, timeout=120)
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
             console.print(Markdown(content))
             return content
 
-    except Exception as e:
-        console.print(f"\n[bold red]❌ API 调用失败: {e}[/bold red]")
-        if "Connection" in str(e) or "connect" in str(e).lower():
-            console.print("[dim]请检查网络连接和 DEEPSEEK_BASE_URL 是否正确[/dim]")
-        elif "401" in str(e) or "Unauthorized" in str(e):
+    except requests.exceptions.ConnectionError:
+        console.print("\n[bold red]❌ 网络连接失败，无法访问 DeepSeek API[/bold red]")
+        console.print("[dim]请检查网络和 DEEPSEEK_BASE_URL 配置[/dim]")
+        sys.exit(1)
+    except requests.exceptions.HTTPError as e:
+        console.print(f"\n[bold red]❌ API 返回错误[/bold red]")
+        if e.response.status_code == 401:
             console.print("[dim]请检查 DEEPSEEK_API_KEY 是否有效[/dim]")
+        elif e.response.status_code == 429:
+            console.print("[dim]请求频率过高，请稍后重试[/dim]")
+        else:
+            console.print(f"[dim]HTTP {e.response.status_code}: {e.response.text[:200]}[/dim]")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"\n[bold red]❌ 调用失败: {e}[/bold red]")
         sys.exit(1)
 
 
