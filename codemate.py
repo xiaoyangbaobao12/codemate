@@ -201,29 +201,47 @@ def read_code_input(input_source: str | None) -> str:
 # ---------- CLI 命令 ----------
 
 def interactive_menu():
-    """无参数双击运行时显示的交互菜单"""
-    console.print(Panel.fit(
-        "[bold cyan]CodeMate — AI 编程学习助手[/bold cyan]\n\n"
-        "  [1] [bold]📖 代码解释[/bold]   — 粘贴代码，AI 逐块解析\n"
-        "  [2] [bold]🐛 错误诊断[/bold]   — 粘贴报错，AI 分析修复\n"
-        "  [3] [bold]💡 概念问答[/bold]   — 输入概念，AI 举例讲解\n"
-        "  [0] 退出",
-        border_style="cyan",
-        title="菜单"
-    ))
-    try:
-        choice = click.prompt("请选择", type=int, default=0)
-    except (KeyboardInterrupt, EOFError):
-        return
+    """无参数双击运行时显示的交互菜单（循环）"""
+    while True:
+        console.clear()
+        console.print(Panel.fit(
+            "[bold cyan]CodeMate — AI 编程学习助手[/bold cyan]\n\n"
+            "  [1] [bold]📖 代码解释[/bold]   — 粘贴代码，AI 逐块解析\n"
+            "  [2] [bold]🐛 错误诊断[/bold]   — 粘贴报错，AI 分析修复\n"
+            "  [3] [bold]💡 概念问答[/bold]   — 输入概念，AI 举例讲解\n"
+            "  [0] 退出",
+            border_style="cyan",
+            title="菜单"
+        ))
+        try:
+            choice = click.prompt("请选择", type=int, default=0)
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[dim]再见 👋[/dim]")
+            break
 
-    if choice == 1:
-        explain.callback(stream=True)
-    elif choice == 2:
-        debug.callback(stream=True)
-    elif choice == 3:
-        concept.callback(stream=True)
-    else:
-        console.print("[dim]再见 👋[/dim]")
+        try:
+            if choice == 1:
+                explain.callback(file=None, stream=True)
+            elif choice == 2:
+                debug.callback(error=None, code_str=None, code_file=None, stream=True)
+            elif choice == 3:
+                concept.callback(topic=None, stream=True)
+            elif choice == 0:
+                console.print("[dim]再见 👋[/dim]")
+                break
+            else:
+                console.print("[yellow]请输入 0-3[/yellow]")
+        except SystemExit:
+            pass  # API 出错等触发的 sys.exit，拦住回菜单
+        except Exception as e:
+            console.print(f"\n[bold red]❌ 出错: {e}[/bold red]")
+
+        # 问完后暂停，按 Enter 回菜单
+        try:
+            input("\n[dim]按 Enter 返回菜单...[/dim]")
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[dim]再见 👋[/dim]")
+            break
 
 
 @click.group(invoke_without_command=True)
@@ -276,9 +294,19 @@ def debug(error, code_str, code_file, stream):
       codemate debug "TypeError: 'int' object is not subscriptable"
       codemate debug "报错信息" --code "相关代码"
       codemate debug "报错信息" --file app.py
+      codemate debug                  打开编辑器粘贴完整报错+代码
     """
     if not error:
-        error = click.prompt("请输入错误信息（可粘贴完整报错）")
+        console.print("[dim]请在编辑器中粘贴完整报错和代码，保存后关闭编辑器...[/dim]")
+        error = click.edit("## 在下方粘贴报错信息\n## （#开头的行会被忽略）\n")
+        if error is None or not error.strip():
+            console.print("[yellow]⚠️  未输入内容[/yellow]")
+            return
+        # 去掉注释行
+        error = "\n".join(
+            line for line in error.split("\n")
+            if not line.strip().startswith("##")
+        )
 
     # 构建上下文
     parts = [f"## 错误信息\n{error}"]
@@ -330,11 +358,11 @@ def pause():
 if __name__ == "__main__":
     try:
         cli()
+    except SystemExit:
+        pass
     except Exception as e:
         console.print(f"\n[bold red]❌ 运行出错: {e}[/bold red]")
         import traceback
         traceback.print_exc()
-        pause()
-        sys.exit(1)
-    else:
+    finally:
         pause()
