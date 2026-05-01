@@ -10,7 +10,13 @@
 
 ## 快速开始
 
-### 1. 安装依赖
+### 方式一：下载 exe（推荐，无需安装任何东西）
+
+从 [Releases](https://github.com/xiaoyangbaobao12/codemate/releases) 下载 `codemate.exe`，双击运行，首次使用输入 DeepSeek API Key 即可。
+
+### 方式二：源码运行
+
+#### 1. 安装依赖
 
 ```bash
 pip install -r requirements.txt
