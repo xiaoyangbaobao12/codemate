@@ -74,18 +74,6 @@ codemate/
 - Click（CLI 框架）
 - Rich（终端美化，Markdown 渲染 + 代码高亮）
 
-## 申请 MiMo 100T Token 激励计划
-
-本项目可用于 [Xiaomi MiMo Orbit 百万亿 Token 创造者激励计划](https://100t.xiaomimimo.com/) 的申请。
-
-只需将 API 配置改为 MiMo API 即可：
-
-```bash
-export DEEPSEEK_API_KEY="你的MiMo-API-Key"
-export DEEPSEEK_BASE_URL="https://api.xiaomimimo.com/v1"
-export DEEPSEEK_MODEL="mimo-v2.5-chat"  # 以实际模型名为准
-```
-
 ## License
 
 MIT
