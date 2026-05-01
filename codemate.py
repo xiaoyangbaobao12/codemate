@@ -318,5 +318,23 @@ def concept(topic, stream):
     call_api(CONCEPT_PROMPT, f"请解释以下概念：{topic}", stream=stream)
 
 
+def pause():
+    """Windows 双击运行时防止窗口闪退"""
+    if sys.stdout.isatty():
+        try:
+            input("\n[dim]按 Enter 退出...[/dim]")
+        except (KeyboardInterrupt, EOFError):
+            pass
+
+
 if __name__ == "__main__":
-    cli()
+    try:
+        cli()
+    except Exception as e:
+        console.print(f"\n[bold red]❌ 运行出错: {e}[/bold red]")
+        import traceback
+        traceback.print_exc()
+        pause()
+        sys.exit(1)
+    else:
+        pause()
