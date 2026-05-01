@@ -21,9 +21,65 @@ from prompts import CONCEPT_PROMPT, DEBUG_PROMPT, EXPLAIN_PROMPT
 console = Console()
 
 # ---------- API 配置 ----------
+CONFIG_DIR = Path.home() / ".codemate"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+
 API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+
+
+def load_config():
+    """从配置文件加载 API Key（优先级低于环境变量）"""
+    if API_KEY:
+        return
+    try:
+        if CONFIG_FILE.exists():
+            config = json.loads(CONFIG_FILE.read_text())
+            return config.get("api_key")
+    except Exception:
+        pass
+    return None
+
+
+def save_config(api_key: str):
+    """保存 API Key 到配置文件"""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text(json.dumps({"api_key": api_key}))
+
+
+def resolve_api_key():
+    """获取 API Key：环境变量 > 配置文件 > 交互输入"""
+    global API_KEY
+    if API_KEY:
+        return
+
+    # 尝试配置文件
+    saved = load_config()
+    if saved:
+        API_KEY = saved
+        return
+
+    # 首次运行，交互输入
+    console.print(Panel.fit(
+        "[bold yellow]🔑 首次使用需要配置 DeepSeek API Key[/bold yellow]\n\n"
+        "去 [link=https://platform.deepseek.com/api_keys]platform.deepseek.com/api_keys[/link] 创建一个\n"
+        "然后粘贴到这里：",
+        border_style="yellow",
+        title="配置"
+    ))
+    try:
+        key = click.prompt("API Key", hide_input=False).strip()
+        if key:
+            save_config(key)
+            API_KEY = key
+            console.print("[green]✅ 已保存到 ~/.codemate/config.json[/green]\n")
+        else:
+            console.print("[red]❌ Key 不能为空[/red]")
+            sys.exit(1)
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[yellow]已取消[/yellow]")
+        sys.exit(0)
 
 # ---------- 提示 ----------
 USAGE_HINT = """
@@ -41,10 +97,11 @@ USAGE_HINT = """
 
 
 def check_api_key():
-    """检查 API Key 是否配置，未配置时给出友好提示"""
+    """检查并获取 API Key"""
+    resolve_api_key()
     if not API_KEY:
         console.print(Panel.fit(
-            "[bold red]❌ 未设置 DEEPSEEK_API_KEY[/bold red]\n\n" + USAGE_HINT,
+            "[bold red]❌ 未配置 DEEPSEEK_API_KEY[/bold red]\n\n" + USAGE_HINT,
             border_style="red",
         ))
         sys.exit(1)
@@ -143,14 +200,45 @@ def read_code_input(input_source: str | None) -> str:
 
 # ---------- CLI 命令 ----------
 
-@click.group()
+def interactive_menu():
+    """无参数双击运行时显示的交互菜单"""
+    console.print(Panel.fit(
+        "[bold cyan]CodeMate — AI 编程学习助手[/bold cyan]\n\n"
+        "  [1] [bold]📖 代码解释[/bold]   — 粘贴代码，AI 逐块解析\n"
+        "  [2] [bold]🐛 错误诊断[/bold]   — 粘贴报错，AI 分析修复\n"
+        "  [3] [bold]💡 概念问答[/bold]   — 输入概念，AI 举例讲解\n"
+        "  [0] 退出",
+        border_style="cyan",
+        title="菜单"
+    ))
+    try:
+        choice = click.prompt("请选择", type=int, default=0)
+    except (KeyboardInterrupt, EOFError):
+        return
+
+    if choice == 1:
+        explain.callback(stream=True)
+    elif choice == 2:
+        debug.callback(stream=True)
+    elif choice == 3:
+        concept.callback(stream=True)
+    else:
+        console.print("[dim]再见 👋[/dim]")
+
+
+@click.group(invoke_without_command=True)
 @click.version_option(version="0.1.0", prog_name="codemate")
-def cli():
+@click.pass_context
+def cli(ctx):
     """CodeMate - AI 编程学习助手
 
     三个子命令：explain（解释代码）| debug（诊断错误）| concept（概念问答）
+
+    \b
+    直接双击运行或输入 codemate 进入交互菜单。
     """
-    pass
+    if ctx.invoked_subcommand is None:
+        interactive_menu()
 
 
 @cli.command()
